@@ -1,12 +1,32 @@
 """Package for parsing, analyzing, simulating and plotting dice rolls
 """
 
-from typing import Any, Callable, Dict, Self, TypeAlias, Union
+from typing import Any, Callable, Dict, List, Self, TypeAlias, TypedDict, Union
+from django.test import tag
 
 import numpy
 
 # Common Type Aliases
-Distribution: TypeAlias = Dict[int, float]
+class RollValue(TypedDict):
+    """Represents a single value of a roll and its probability with tags
+    """
+    
+    value: int
+    """The value of the roll
+    """
+    
+    probability: float
+    """The probability of the value
+    """
+    
+    tags: Dict[str, int]
+    """The tags of the roll
+    """
+    
+
+Distribution: TypeAlias = List[RollValue]
+"""A distribution of the possible values of a roll
+"""
 
 
 # private utility methods
@@ -31,6 +51,32 @@ def _ensure_roll(roll: Any) -> 'PartialRoll':
         return ConstantRoll(roll)
     else:
         raise NotImplementedError(f"Cannot convert {roll} to a PartialRoll")
+    
+
+def _combine_tag_dicts(tags1: Dict[str, int], tags2: Dict[str, int]) -> Dict[str, int]:
+    """Combines two tag dictionaries by adding the values of the same tags. The result is a new dictionary.
+
+    Args:
+        tags1 (Dict[str, int]): the first tag dictionary
+        tags2 (Dict[str, int]): the second tag dictionary
+
+    Returns:
+        Dict[str, int]: the combined tag dictionary
+    """
+    return {tag: tags1.get(tag, 0) + tags2.get(tag, 0) for tag in set(tags1.keys()).union(tags2.keys())}
+
+
+def _equal_tag_dicts(tags1: Dict[str, int], tags2: Dict[str, int]) -> bool:
+    """Checks if two tag dictionaries are equal. Two tag dictionaries are equal if they have the same tags and the same values for each tag.
+
+    Args:
+        tags1 (Dict[str, int]): the first tag dictionary
+        tags2 (Dict[str, int]): the second tag dictionary
+
+    Returns:
+        bool: True if the tag dictionaries are equal, False otherwise
+    """
+    return all(tags1.get(tag, 0) == tags2.get(tag, 0) for tag in set(tags1.keys()).union(tags2.keys()))
 
 
 # classes
@@ -45,16 +91,14 @@ class PartialRoll:
         raise NotImplementedError()
     
     # implemented methods
-    def simulate(self) -> int:
+    def simulate(self) -> RollValue:
         """Returns a single value of this roll.
         """
-        keys = []
-        values = []
-        for k, v in self.get_distribution().items():
-            keys.append(k)
-            values.append(v)
+        values = self.get_distribution()
+        args = [i for i in range(len(values))]
+        probs = [v["probability"] for v in values]
 
-        return numpy.random.choice(keys, p=values)
+        return values[numpy.random.choice(args, p=probs)]
     
     # operators
     def __add__(self, other):
@@ -133,22 +177,75 @@ class ConstantRoll(PartialRoll):
     """Represents a roll that is always a constant value.
     """
     
-    def __init__(self, value: int):
+    def __init__(self, value: int, *tags: str):
         self.value = value
+        self.tags = tags
     
     
     # implemented methods
     def get_distribution(self) -> Distribution:
         """Returns a distribution of the possible values of this roll.
         """
-        return {self.value: 1.0}
+        return [{ # only one roll possible, with all tags specified in the constructor
+            "value": self.value,
+            "probability": 1,
+            "tags": {tag: 1 for tag in self.tags}
+        }]
     
+
+class DiceRoll(PartialRoll):
+    """Partial Roll that simulates a fair dice
+    """
+    
+    def __init__(self, sides: Union[int, List[int]], **tags: Union[List[int], int]):
+        """Creates a new DiceRoll. A dice is defined by its sides and tags. The dice is fair, so all sides have the same probability.
+
+        Args:
+            sides (Union[int, List[int]]): the sides of the dice. If an int is given, the sides are 1 to sides. If a list is given, the sides are the elements of the list.
+            **tags (Union[List[int], int]): the tags of the dice. If an int is given, the tag is assigned to just that side. If a list is given, the tag is assigned to all listed sides.
+        """
+        
+        # if sides is an int, create a list of all sides
+        self.sides = sides if isinstance(sides, list) else [i for i in range(1, sides + 1)]
+        
+        # if a tag is assigned an integer, make it a list with just that integer
+        tag_lists = {tag: [value] if isinstance(value, int) else value for tag, value in tags.items()}
+        
+        self.tags_by_side: Dict[int, List[str]] = {
+            side: [tag for tag, sides in tag_lists.items() if side in sides]
+            for side in self.sides
+        }
+        
+    def get_distribution(self) -> Distribution:
+        return [{
+            "value": side,
+            "probability": 1 / len(self.sides),
+            "tags": {tag: 1 for tag in self.tags_by_side[side]}
+        } for side in self.sides]
+    
+    def __rmul__(self, other):
+        if isinstance(other, int):
+            roll = ConstantRoll(0)
+            for _ in range(other):
+                roll = MergeRoll(roll, self, lambda a, b: a + b)
+                
+            return roll
+        
+        return super().__rmul__(other)
+
 
 class MergeRoll(PartialRoll):
     """Represents a roll that is the sum of two other rolls.
     """
     
     def __init__(self, roll1: PartialRoll, roll2: PartialRoll, combiner: Callable[[int, int], int]):
+        """Creates a new MergeRoll. The combiner function is used to combine the values of the two rolls.
+
+        Args:
+            roll1 (PartialRoll): the first roll
+            roll2 (PartialRoll): the second roll
+            combiner (Callable[[int, int], int]): the combiner function. Values of the first and second roll are passed as arguments and the result is the value of this roll.
+        """
         self.roll1 = roll1
         self.roll2 = roll2
         self.combiner = combiner
@@ -162,17 +259,26 @@ class MergeRoll(PartialRoll):
         dist2 = self.roll2.get_distribution()
         
         # accumulate the distributions with the combiner function
-        dist = {}
-        for k1, v1 in dist1.items():
-            for k2, v2 in dist2.items():
-                k = self.combiner(k1, k2) # combine keys with the combiner given in constructor
-                v = v1 * v2
-                if k in dist:
-                    dist[k] += v
-                else:
-                    dist[k] = v
-        
+        dist: Distribution = []
+        for v1 in dist1:
+            for v2 in dist2:
+                k = self.combiner(v1["value"], v2["value"]) # combine values with the combiner given in constructor
+                v = v1["probability"] * v2["probability"] # combine probabilities by multiplying them
+                tags = _combine_tag_dicts(v1["tags"], v2["tags"]) # combine tags by adding them
+                
+                # try to find existing roll with equal value and tags
+                existing = next((d for d in dist if d["value"] == k and _equal_tag_dicts(d["tags"], tags)), None)
+                if existing is not None: # if found, add probability to existing roll value
+                    existing["probability"] += v
+                else: # if not found, add new roll value
+                    dist.append({
+                        "value": k,
+                        "probability": v,
+                        "tags": tags
+                    })
+                
         return dist
+    
     
 # math utility methods
 def roll_max(*rolls: Union[PartialRoll, int]) -> PartialRoll:
