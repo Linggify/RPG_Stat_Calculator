@@ -1,7 +1,8 @@
 """Package for parsing, analyzing, simulating and plotting dice rolls
 """
 
-from typing import Any, Callable, Dict, List, Self, TypeAlias, TypedDict, Union
+from functools import reduce
+from typing import Any, Callable, Dict, Generic, List, Protocol, Self, TypeAlias, TypeVar, TypedDict, Union
 from django.test import tag
 
 import numpy
@@ -28,6 +29,15 @@ Distribution: TypeAlias = List[RollValue]
 """A distribution of the possible values of a roll
 """
 
+T = TypeVar('T', contravariant=True)
+V = TypeVar('V', covariant=True)
+class VarargsCallable(Generic[T, V], Protocol):
+    """A callable that takes a variable number of arguments
+    """
+    
+    def __call__(self, *args: T) -> V:
+        ...
+
 
 # private utility methods
 def _ensure_roll(roll: Any) -> 'PartialRoll':
@@ -52,8 +62,8 @@ def _ensure_roll(roll: Any) -> 'PartialRoll':
     else:
         raise NotImplementedError(f"Cannot convert {roll} to a PartialRoll")
     
-
-def _combine_tag_dicts(tags1: Dict[str, int], tags2: Dict[str, int]) -> Dict[str, int]:
+    
+def _combine_tag_dicts_bin(tags1: Dict[str, int], tags2: Dict[str, int]) -> Dict[str, int]:
     """Combines two tag dictionaries by adding the values of the same tags. The result is a new dictionary.
 
     Args:
@@ -64,6 +74,18 @@ def _combine_tag_dicts(tags1: Dict[str, int], tags2: Dict[str, int]) -> Dict[str
         Dict[str, int]: the combined tag dictionary
     """
     return {tag: tags1.get(tag, 0) + tags2.get(tag, 0) for tag in set(tags1.keys()).union(tags2.keys())}
+
+
+def _combine_tag_dicts(*tag_dicts: Dict[str, int]) -> Dict[str, int]:
+    """Combines multiple tag dictionaries by adding the values of the same tags. The result is a new dictionary.
+
+    Args:
+        *tag_dicts (Dict[str, int]): the tag dictionaries to combine
+
+    Returns:
+        Dict[str, int]: the combined tag dictionary
+    """
+    return reduce(_combine_tag_dicts_bin, tag_dicts, {})
 
 
 def _equal_tag_dicts(tags1: Dict[str, int], tags2: Dict[str, int]) -> bool:
@@ -103,74 +125,74 @@ class PartialRoll:
     # operators
     def __add__(self, other):
         roll = _ensure_roll(other)
-        return MergeRoll(self, roll, lambda a, b: a + b)
+        return OperatorRoll(self, roll, lambda a, b: a + b)
     
     def __radd__(self, other):
         roll = _ensure_roll(other)
-        return MergeRoll(self, roll, lambda a, b: b + a)
+        return OperatorRoll(self, roll, lambda a, b: b + a)
     
     def __sub__(self, other):
         roll = _ensure_roll(other)
-        return MergeRoll(self, roll, lambda a, b: a - b)
+        return OperatorRoll(self, roll, lambda a, b: a - b)
     
     def __rsub__(self, other):
         roll = _ensure_roll(other)
-        return MergeRoll(self, roll, lambda a, b: b - a)
+        return OperatorRoll(self, roll, lambda a, b: b - a)
     
     def __mul__(self, other):
         roll = _ensure_roll(other)
-        return MergeRoll(self, roll, lambda a, b: a * b)
+        return OperatorRoll(self, roll, lambda a, b: a * b)
     
     def __rmul__(self, other):
         roll = _ensure_roll(other)
-        return MergeRoll(self, roll, lambda a, b: b * a)
+        return OperatorRoll(self, roll, lambda a, b: b * a)
     
     def __truediv__(self, other):
         roll = _ensure_roll(other)
-        return MergeRoll(self, roll, lambda a, b: round(a / b))
+        return OperatorRoll(self, roll, lambda a, b: round(a / b))
     
     def __rtruediv__(self, other):
         roll = _ensure_roll(other)
-        return MergeRoll(self, roll, lambda a, b: round(b / a))
+        return OperatorRoll(self, roll, lambda a, b: round(b / a))
     
     def __rfloordiv__(self, other):
         roll = _ensure_roll(other)
-        return MergeRoll(self, roll, lambda a, b: b // a)
+        return OperatorRoll(self, roll, lambda a, b: b // a)
     
     def __pow__(self, other):
         roll = _ensure_roll(other)
-        return MergeRoll(self, roll, lambda a, b: a ** b)
+        return OperatorRoll(self, roll, lambda a, b: a ** b)
     
     def __rmod__(self, other):
         roll = _ensure_roll(other)
-        return MergeRoll(self, roll, lambda a, b: b % a)
+        return OperatorRoll(self, roll, lambda a, b: b % a)
     
     def __neg__(self):
-        return MergeRoll(self, ConstantRoll(0), lambda a, b: -a)
+        return OperatorRoll(self, ConstantRoll(0), lambda a, b: -a)
     
     def __lt__(self, other):
         roll = _ensure_roll(other)
-        return MergeRoll(self, roll, lambda a, b: 1 if a < b else 0)
+        return OperatorRoll(self, roll, lambda a, b: 1 if a < b else 0)
     
     def __le__(self, other):
         roll = _ensure_roll(other)
-        return MergeRoll(self, roll, lambda a, b: 1 if a <= b else 0)
+        return OperatorRoll(self, roll, lambda a, b: 1 if a <= b else 0)
     
     def __eq__(self, other):
         roll = _ensure_roll(other)
-        return MergeRoll(self, roll, lambda a, b: 1 if a == b else 0)
+        return OperatorRoll(self, roll, lambda a, b: 1 if a == b else 0)
     
     def __ne__(self, other):
         roll = _ensure_roll(other)
-        return MergeRoll(self, roll, lambda a, b: 1 if a != b else 0)
+        return OperatorRoll(self, roll, lambda a, b: 1 if a != b else 0)
     
     def __gt__(self, other):
         roll = _ensure_roll(other)
-        return MergeRoll(self, roll, lambda a, b: 1 if a > b else 0)
+        return OperatorRoll(self, roll, lambda a, b: 1 if a > b else 0)
     
     def __ge__(self, other):
         roll = _ensure_roll(other)
-        return MergeRoll(self, roll, lambda a, b: 1 if a >= b else 0)
+        return OperatorRoll(self, roll, lambda a, b: 1 if a >= b else 0)
 
     
 class ConstantRoll(PartialRoll):
@@ -193,16 +215,16 @@ class ConstantRoll(PartialRoll):
         }]
     
 
-class DiceRoll(PartialRoll):
-    """Partial Roll that simulates a fair dice
+class DieRoll(PartialRoll):
+    """Partial Roll that simulates a fair die
     """
     
     def __init__(self, sides: Union[int, List[int]], **tags: Union[List[int], int]):
-        """Creates a new DiceRoll. A dice is defined by its sides and tags. The dice is fair, so all sides have the same probability.
+        """Creates a new DiceRoll. A die is defined by its sides and tags. The die is fair, so all sides have the same probability.
 
         Args:
-            sides (Union[int, List[int]]): the sides of the dice. If an int is given, the sides are 1 to sides. If a list is given, the sides are the elements of the list.
-            **tags (Union[List[int], int]): the tags of the dice. If an int is given, the tag is assigned to just that side. If a list is given, the tag is assigned to all listed sides.
+            sides (Union[int, List[int]]): the sides of the die. If an int is given, the sides are 1 to sides. If a list is given, the sides are the elements of the list.
+            **tags (Union[List[int], int]): the tags of the die. If an int is given, the tag is assigned to just that side. If a list is given, the tag is assigned to all listed sides.
         """
         
         # if sides is an int, create a list of all sides
@@ -227,7 +249,7 @@ class DiceRoll(PartialRoll):
         if isinstance(other, int):
             roll = ConstantRoll(0)
             for _ in range(other):
-                roll = MergeRoll(roll, self, lambda a, b: a + b)
+                roll = OperatorRoll(roll, self, lambda a, b: a + b)
                 
             return roll
         
@@ -235,7 +257,54 @@ class DiceRoll(PartialRoll):
 
 
 class MergeRoll(PartialRoll):
-    """Represents a roll that is the sum of two other rolls.
+    """Merge Roll that provides large controll over how to deal with the input rolls
+    """
+    
+    def __init__(self,
+                 *rolls: PartialRoll,
+                 value_resolver: VarargsCallable[RollValue, int]=lambda *rolls: sum(roll["value"] for roll in rolls),
+                 tag_resolver: VarargsCallable[RollValue, Dict[str, int]]=lambda *rolls: _combine_tag_dicts(*[roll["tags"] for roll in rolls])):
+        """Creates a new BaseMergeRoll. The value_resolver and tag_resolver functions are used to combine the values and tags of the input rolls.
+
+        Args:
+            *rolls (PartialRoll): the rolls to merge
+            value_resolver (VarargsCallable[int]): the function to combine the values of the input rolls
+            tag_resolver (VarargsCallable[Dict[str, int]]): the function to combine the tags of the input rolls
+        """
+        self.rolls = rolls
+        self.value_resolver = value_resolver
+        self.tag_resolver = tag_resolver
+        
+    def get_distribution(self) -> Distribution:
+        """Returns a distribution of the possible values of this roll.
+        """
+        dists = [roll.get_distribution() for roll in self.rolls]
+        
+        # accumulate the distributions with the combiner function
+        dist: Distribution = []
+        
+        for index in numpy.ndindex(*[len(d) for d in dists]):
+            rolls = [d[index[i]] for i, d in enumerate(dists)]
+            n_val = self.value_resolver(*rolls)
+            n_prob = reduce(lambda a, b: a * b, [r["probability"] for r in rolls], 1)
+            n_tags = self.tag_resolver(*rolls)
+            
+            # find existing roll in distribution with equal value and tags
+            existing = next((d for d in dist if d["value"] == n_val and _equal_tag_dicts(d["tags"], n_tags)), None)
+            if existing is not None:
+                existing["probability"] += n_prob
+            else:
+                dist.append({
+                    "value": n_val,
+                    "probability": n_prob,
+                    "tags": n_tags
+                })
+                
+        return dist
+
+
+class OperatorRoll(MergeRoll):
+    """Represents a roll that is the result of applying a binary operator to two rolls.
     """
     
     def __init__(self, roll1: PartialRoll, roll2: PartialRoll, combiner: Callable[[int, int], int]):
@@ -246,38 +315,7 @@ class MergeRoll(PartialRoll):
             roll2 (PartialRoll): the second roll
             combiner (Callable[[int, int], int]): the combiner function. Values of the first and second roll are passed as arguments and the result is the value of this roll.
         """
-        self.roll1 = roll1
-        self.roll2 = roll2
-        self.combiner = combiner
-    
-    
-    # implemented methods
-    def get_distribution(self) -> Distribution:
-        """Returns a distribution of the possible values of this roll.
-        """
-        dist1 = self.roll1.get_distribution()
-        dist2 = self.roll2.get_distribution()
-        
-        # accumulate the distributions with the combiner function
-        dist: Distribution = []
-        for v1 in dist1:
-            for v2 in dist2:
-                k = self.combiner(v1["value"], v2["value"]) # combine values with the combiner given in constructor
-                v = v1["probability"] * v2["probability"] # combine probabilities by multiplying them
-                tags = _combine_tag_dicts(v1["tags"], v2["tags"]) # combine tags by adding them
-                
-                # try to find existing roll with equal value and tags
-                existing = next((d for d in dist if d["value"] == k and _equal_tag_dicts(d["tags"], tags)), None)
-                if existing is not None: # if found, add probability to existing roll value
-                    existing["probability"] += v
-                else: # if not found, add new roll value
-                    dist.append({
-                        "value": k,
-                        "probability": v,
-                        "tags": tags
-                    })
-                
-        return dist
+        super().__init__(roll1, roll2, value_resolver=lambda *rolls: combiner(rolls[0]["value"], rolls[1]["value"]))
     
     
 # math utility methods
@@ -293,12 +331,7 @@ def roll_max(*rolls: Union[PartialRoll, int]) -> PartialRoll:
     if len(rolls) == 0:
         raise ValueError("Expected at least one roll")
     
-    roll = _ensure_roll(rolls[0])
-    for r in rolls[1:]:
-        r = _ensure_roll(r)
-        roll = MergeRoll(roll, r, lambda a, b: max(a, b))
-    
-    return roll
+    return MergeRoll(*[_ensure_roll(roll) for roll in rolls], value_resolver=lambda *rolls: max(roll["value"] for roll in rolls))
 
 
 def roll_min(*rolls: Union[PartialRoll, int]) -> PartialRoll:
@@ -313,9 +346,34 @@ def roll_min(*rolls: Union[PartialRoll, int]) -> PartialRoll:
     if len(rolls) == 0:
         raise ValueError("Expected at least one roll")
     
-    roll = _ensure_roll(rolls[0])
-    for r in rolls[1:]:
-        r = _ensure_roll(r)
-        roll = MergeRoll(roll, r, lambda a, b: min(a, b))
+    return MergeRoll(*[_ensure_roll(roll) for roll in rolls], value_resolver=lambda *rolls: min(roll["value"] for roll in rolls))
+
+# other utility methods
+
+def apply_tag_rule(roll: PartialRoll, value_transformer: Callable[[int], int], predicate: Callable[[Dict[str, int]], bool]) -> PartialRoll:
+    """Applies a function to the given roll that modifies the values if they have the specified tags.
     
-    return roll
+    This is a utility method that can be useful in many cases. However, in case your tag rule is more complicated
+    (like crits or fails in dsa, which require an additional die to be rolled) you can use MergeRoll directly.
+
+    Args:
+        roll (PartialRoll): the roll to apply the tag rule to
+        value_transformer (Callable[[int], int]): the function to transform the value of the roll if the tags match
+        predicate (Callable[[Dict[str, int]], bool]): the predicate to check if the tags match
+
+    Returns:
+        PartialRoll: the roll with the tag rule applied
+    """
+    return MergeRoll(roll, value_resolver=lambda *rolls: value_transformer(rolls[0]["value"]) if predicate(rolls[0]["tags"]) else rolls[0]["value"])
+
+def remove_tags(roll: PartialRoll, *tags: str) -> PartialRoll:
+    """Removes the specified tags from the given roll.
+
+    Args:
+        roll (PartialRoll): the roll to remove the tags from
+        *tags (str): the tags to remove
+
+    Returns:
+        PartialRoll: the roll with the tags removed
+    """
+    return MergeRoll(roll, tag_resolver=lambda *rolls: {tag: value for tag, value in rolls[0]["tags"].items() if tag not in tags})
