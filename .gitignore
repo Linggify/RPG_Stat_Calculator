@@ -5,5 +5,7 @@
 # generated python files
 **/__pycache__
 
-# python virtual environment
+# python virtual environment and build tools
+.pdm-python
+.pdm-build
 venv

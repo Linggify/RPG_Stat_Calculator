@@ -1,0 +1,21 @@
+[project]
+name = "rpg-stat-calculator"
+version = "0.0"
+description = "Provides tools for intuitively define and analyse rolling dice with complex rules in python"
+authors = [
+    {name = "Linggify",email = "Linggify@github.com"},
+]
+dependencies = [
+    "numpy>=1.26.3",
+]
+requires-python = ">=3.11"
+readme = "README.md"
+license = {text = "MIT"}
+
+[build-system]
+requires = ["pdm-backend"]
+build-backend = "pdm.backend"
+
+
+[tool.pdm]
+package-type = "library"
